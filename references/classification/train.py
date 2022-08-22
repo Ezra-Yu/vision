@@ -13,7 +13,9 @@ from sampler import RASampler
 from torch import nn
 from torch.utils.data.dataloader import default_collate
 from torchvision.transforms.functional import InterpolationMode
-
+from mmcv.runner import set_random_seed
+from dataset import ClsDataset
+import subprocess
 
 def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema=None, scaler=None):
     model.train()
@@ -110,7 +112,101 @@ def _get_cache_path(filepath):
     return cache_path
 
 
-def load_data(traindir, valdir, args):
+def load_data(data_root, args):
+    traindir = os.path.join(data_root, "train")
+    valdir = os.path.join(data_root, "val")
+    train_ann = os.path.join(traindir, "meta", "train.txt")
+    # Data loading code
+    print("Loading data")
+    val_resize_size, val_crop_size, train_crop_size = args.val_resize_size, args.val_crop_size, args.train_crop_size
+    interpolation = InterpolationMode(args.interpolation)
+
+    print("Loading training data")
+    st = time.time()
+    cache_path = _get_cache_path(traindir)
+    dataset = [1]
+    if not args.test_only:
+        if args.cache_dataset and os.path.exists(cache_path):
+            # Attention, as the transforms are also cached!
+            print(f"Loading dataset_train from {cache_path}")
+            dataset, _ = torch.load(cache_path)
+        else:
+            auto_augment_policy = getattr(args, "auto_augment", None)
+            random_erase_prob = getattr(args, "random_erase", 0.0)
+            # dataset = torchvision.datasets.ImageFolder(
+            #     traindir,
+            #     presets.ClassificationPresetTrain(
+            #         crop_size=train_crop_size,
+            #         interpolation=interpolation,
+            #         auto_augment_policy=auto_augment_policy,
+            #         random_erase_prob=random_erase_prob,
+            #     ),
+            # )
+            dataset = ClsDataset(
+                traindir,
+                train_ann,
+                presets.ClassificationPresetTrain(
+                    crop_size=train_crop_size,
+                    auto_augment_policy=auto_augment_policy,
+                    random_erase_prob=random_erase_prob,
+                ),
+            )
+
+            # dataset = ClsDataset(
+            #     's3://openmmlab/datasets/classification/imagenet/train',
+            #     's3://openmmlab/datasets/classification/imagenet/meta/train.txt',
+            #     presets.ClassificationPresetTrain(
+            #         crop_size=crop_size,
+            #         auto_augment_policy=auto_augment_policy,
+            #         random_erase_prob=random_erase_prob,
+            #     ),
+            # )
+
+            if args.cache_dataset:
+                print(f"Saving dataset_train to {cache_path}")
+                utils.mkdir(os.path.dirname(cache_path))
+                utils.save_on_master((dataset, traindir), cache_path)
+        print("Took", time.time() - st)
+
+    print("Loading validation data")
+    cache_path = _get_cache_path(valdir)
+    if args.cache_dataset and os.path.exists(cache_path):
+        # Attention, as the transforms are also cached!
+        print(f"Loading dataset_test from {cache_path}")
+        dataset_test, _ = torch.load(cache_path)
+    else:
+        if args.weights and args.test_only:
+            weights = torchvision.models.get_weight(args.weights)
+            preprocessing = weights.transforms()
+        else:
+            preprocessing = presets.ClassificationPresetEval(
+                crop_size=val_crop_size, resize_size=val_resize_size, interpolation=interpolation
+            )
+
+        dataset_test = torchvision.datasets.ImageFolder(
+            valdir,
+            preprocessing,
+        )
+        if args.cache_dataset:
+            print(f"Saving dataset_test to {cache_path}")
+            utils.mkdir(os.path.dirname(cache_path))
+            utils.save_on_master((dataset_test, valdir), cache_path)
+
+    print("Creating data loaders")
+    if args.distributed:
+        if hasattr(args, "ra_sampler") and args.ra_sampler:
+            train_sampler = RASampler(dataset, shuffle=True, repetitions=args.ra_reps)
+        else:
+            train_sampler = torch.utils.data.distributed.DistributedSampler(dataset)
+        test_sampler = torch.utils.data.distributed.DistributedSampler(dataset_test, shuffle=False)
+    else:
+        train_sampler = torch.utils.data.RandomSampler(dataset)
+        test_sampler = torch.utils.data.SequentialSampler(dataset_test)
+
+    return dataset, dataset_test, train_sampler, test_sampler
+
+
+def load_data_backup(traindir, valdir, args):
     # Data loading code
     print("Loading data")
     val_resize_size, val_crop_size, train_crop_size = args.val_resize_size, args.val_crop_size, args.train_crop_size
@@ -126,15 +222,35 @@ def load_data(traindir, valdir, args):
     else:
         auto_augment_policy = getattr(args, "auto_augment", None)
         random_erase_prob = getattr(args, "random_erase", 0.0)
-        dataset = torchvision.datasets.ImageFolder(
+        # dataset = torchvision.datasets.ImageFolder(
+        #     traindir,
+        #     presets.ClassificationPresetTrain(
+        #         crop_size=train_crop_size,
+        #         interpolation=interpolation,
+        #         auto_augment_policy=auto_augment_policy,
+        #         random_erase_prob=random_erase_prob,
+        #     ),
+        # )
+        dataset = ClsDataset(
             traindir,
+            './imagenet/meta/train.txt',
             presets.ClassificationPresetTrain(
                 crop_size=train_crop_size,
-                interpolation=interpolation,
                 auto_augment_policy=auto_augment_policy,
                 random_erase_prob=random_erase_prob,
             ),
         )
+
+        # dataset = ClsDataset(
+        #     's3://openmmlab/datasets/classification/imagenet/train',
+        #     's3://openmmlab/datasets/classification/imagenet/meta/train.txt',
+        #     presets.ClassificationPresetTrain(
+        #         crop_size=crop_size,
+        #         auto_augment_policy=auto_augment_policy,
+        #         random_erase_prob=random_erase_prob,
+        #     ),
+        # )
+
         if args.cache_dataset:
             print(f"Saving dataset_train to {cache_path}")
             utils.mkdir(os.path.dirname(cache_path))
@@ -178,7 +294,6 @@ def load_data(traindir, valdir, args):
 
     return dataset, dataset_test, train_sampler, test_sampler
 
-
 def main(args):
     if args.output_dir:
         utils.mkdir(args.output_dir)
@@ -196,10 +311,11 @@ def main(args):
 
     train_dir = os.path.join(args.data_path, "train")
     val_dir = os.path.join(args.data_path, "val")
-    dataset, dataset_test, train_sampler, test_sampler = load_data(train_dir, val_dir, args)
+    # dataset, dataset_test, train_sampler, test_sampler = load_data(train_dir, val_dir, args)
+    dataset, dataset_test, train_sampler, test_sampler = load_data(args.data_path, args)
 
     collate_fn = None
-    num_classes = len(dataset.classes)
+    num_classes = len(dataset.classes) if hasattr(dataset, "classes") else 1000
     mixup_transforms = []
     if args.mixup_alpha > 0.0:
         mixup_transforms.append(transforms.RandomMixup(num_classes, p=1.0, alpha=args.mixup_alpha))
@@ -371,7 +487,7 @@ def get_args_parser(add_help=True):
 
     parser = argparse.ArgumentParser(description="PyTorch Classification Training", add_help=add_help)
 
-    parser.add_argument("--data-path", default="/datasets01/imagenet_full_size/061417/", type=str, help="dataset path")
+    parser.add_argument("--data-path", default="./data/imagenet-sub", type=str, help="dataset path")
     parser.add_argument("--model", default="resnet18", type=str, help="model name")
     parser.add_argument("--device", default="cuda", type=str, help="device (Use cuda or cpu Default: cuda)")
     parser.add_argument(
