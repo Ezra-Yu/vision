@@ -13,7 +13,6 @@ from sampler import RASampler
 from torch import nn
 from torch.utils.data.dataloader import default_collate
 from torchvision.transforms.functional import InterpolationMode
-from mmcv.runner import set_random_seed
 from dataset import ClsDataset
 import subprocess
 
@@ -115,7 +114,8 @@ def _get_cache_path(filepath):
 def load_data(data_root, args):
     traindir = os.path.join(data_root, "train")
     valdir = os.path.join(data_root, "val")
-    train_ann = os.path.join(traindir, "meta", "train.txt")
+    train_ann = os.path.join(data_root, "meta", "train.txt")
+    val_ann = os.path.join(data_root, "meta", "val.txt")
     # Data loading code
     print("Loading data")
     val_resize_size, val_crop_size, train_crop_size = args.val_resize_size, args.val_crop_size, args.train_crop_size
@@ -182,11 +182,15 @@ def load_data(data_root, args):
             preprocessing = presets.ClassificationPresetEval(
                 crop_size=val_crop_size, resize_size=val_resize_size, interpolation=interpolation
             )
-
-        dataset_test = torchvision.datasets.ImageFolder(
-            valdir,
-            preprocessing,
-        )
+        dataset_test = ClsDataset(
+                valdir,
+                val_ann,
+                transforms=preprocessing
+            )
+        # dataset_test = torchvision.datasets.ImageFolder(
+        #     valdir,
+        #     preprocessing,
+        # )
         if args.cache_dataset:
             print(f"Saving dataset_test to {cache_path}")
             utils.mkdir(os.path.dirname(cache_path))
@@ -333,7 +337,12 @@ def main(args):
         collate_fn=collate_fn,
     )
     data_loader_test = torch.utils.data.DataLoader(
-        dataset_test, batch_size=args.batch_size, sampler=test_sampler, num_workers=args.workers, pin_memory=True
+        dataset_test, 
+        batch_size=args.batch_size, 
+        sampler=test_sampler, 
+        num_workers=args.workers, 
+        pin_memory=True, 
+        persistent_workers=True,
     )
 
     print("Creating model")
@@ -487,7 +496,7 @@ def get_args_parser(add_help=True):
 
     parser = argparse.ArgumentParser(description="PyTorch Classification Training", add_help=add_help)
 
-    parser.add_argument("--data-path", default="./data/imagenet-sub", type=str, help="dataset path")
+    parser.add_argument("--data-path", default="./data/imagenet", type=str, help="dataset path")
     parser.add_argument("--model", default="resnet18", type=str, help="model name")
     parser.add_argument("--device", default="cuda", type=str, help="device (Use cuda or cpu Default: cuda)")
     parser.add_argument(
@@ -541,7 +550,7 @@ def get_args_parser(add_help=True):
     parser.add_argument("--lr-step-size", default=30, type=int, help="decrease lr every step-size epochs")
     parser.add_argument("--lr-gamma", default=0.1, type=float, help="decrease lr by a factor of lr-gamma")
     parser.add_argument("--lr-min", default=0.0, type=float, help="minimum lr of lr schedule (default: 0.0)")
-    parser.add_argument("--print-freq", default=10, type=int, help="print frequency")
+    parser.add_argument("--print-freq", default=100, type=int, help="print frequency")
     parser.add_argument("--output-dir", default=".", type=str, help="path to save outputs")
     parser.add_argument("--resume", default="", type=str, help="path of checkpoint")
     parser.add_argument("--start-epoch", default=0, type=int, metavar="N", help="start epoch")
