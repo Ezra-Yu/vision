@@ -112,7 +112,7 @@ class MetricLogger:
             log_msg = self.delimiter.join(
                 [
                     header,
-                    "[{0" + space_fmt + "}/{1}]",
+                    " Iter:[{0" + space_fmt + "}/{1}]",
                     "eta: {eta}",
                     "{meters}",
                     "time: {time}",
@@ -122,7 +122,7 @@ class MetricLogger:
             )
         else:
             log_msg = self.delimiter.join(
-                [header, "[{0" + space_fmt + "}/{1}]", "eta: {eta}", "{meters}", "time: {time}", "data: {data}"]
+                [header, " Iter:[{0" + space_fmt + "}/{1}]", "eta: {eta}", "{meters}", "time: {time}", "data: {data}"]
             )
         MB = 1024.0 * 1024.0
         for obj in iterable:
@@ -132,9 +132,10 @@ class MetricLogger:
             if i % print_freq == 0:
                 eta_seconds = iter_time.global_avg * (len(iterable) - i)
                 eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
+                dt = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 if torch.cuda.is_available():
                     print(
-                        log_msg.format(
+                        dt + " - " + log_msg.format(
                             i,
                             len(iterable),
                             eta=eta_string,
@@ -146,7 +147,7 @@ class MetricLogger:
                     )
                 else:
                     print(
-                        log_msg.format(
+                        dt + " - " + log_msg.format(
                             i, len(iterable), eta=eta_string, meters=str(self), time=str(iter_time), data=str(data_time)
                         )
                     )

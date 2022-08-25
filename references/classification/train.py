@@ -1,5 +1,5 @@
-import datetime
-import os
+import datetime, time
+import os, sys
 import time
 import warnings
 
@@ -14,15 +14,56 @@ from torch import nn
 from torch.utils.data.dataloader import default_collate
 from torchvision.transforms.functional import InterpolationMode
 from dataset import ClsDataset
-import subprocess
+
+
+class Logger(object):
+    "Lumberjack class - duplicates sys.stdout to a log file and it's okay"
+    #source: https://stackoverflow.com/q/616645
+    def __init__(self, filename=None, mode="a"):
+        self.stdout = sys.stdout
+        sys.stdout = self
+        self.file = None
+        if filename is not None:
+            self.file = open(filename, mode)
+
+    def __del__(self):
+        self.close()
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, *args):
+        self.close()
+
+    def write(self, message):
+        self.stdout.write(message)
+        if self.file:
+            self.file.write(message)
+        
+        self.flush()
+
+    def flush(self):
+        self.stdout.flush()
+        if self.file:
+            self.file.flush()
+            os.fsync(self.file.fileno())
+
+    def close(self):
+        if self.stdout != None:
+            sys.stdout = self.stdout
+            self.stdout = None
+
+        if self.file != None:
+            self.file.close()
+            self.file = None
 
 def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema=None, scaler=None):
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
-    metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value}"))
-    metric_logger.add_meter("img/s", utils.SmoothedValue(window_size=10, fmt="{value}"))
+    metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value:.6f}"))
+    metric_logger.add_meter("img/s", utils.SmoothedValue(window_size=10, fmt="{value:.1f}"))
 
-    header = f"Epoch: [{epoch}]"
+    header = f"Epoch:[{epoch}/{args.epochs}]"
     for i, (image, target) in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
         start_time = time.time()
         image, target = image.to(device), target.to(device)
@@ -150,6 +191,7 @@ def load_data(data_root, args):
                     auto_augment_policy=auto_augment_policy,
                     random_erase_prob=random_erase_prob,
                 ),
+                local=args.local
             )
 
             # dataset = ClsDataset(
@@ -185,7 +227,8 @@ def load_data(data_root, args):
         dataset_test = ClsDataset(
                 valdir,
                 val_ann,
-                transforms=preprocessing
+                transforms=preprocessing,
+                local=args.local
             )
         # dataset_test = torchvision.datasets.ImageFolder(
         #     valdir,
@@ -209,99 +252,7 @@ def load_data(data_root, args):
 
     return dataset, dataset_test, train_sampler, test_sampler
 
-
-def load_data_backup(traindir, valdir, args):
-    # Data loading code
-    print("Loading data")
-    val_resize_size, val_crop_size, train_crop_size = args.val_resize_size, args.val_crop_size, args.train_crop_size
-    interpolation = InterpolationMode(args.interpolation)
-
-    print("Loading training data")
-    st = time.time()
-    cache_path = _get_cache_path(traindir)
-    if args.cache_dataset and os.path.exists(cache_path):
-        # Attention, as the transforms are also cached!
-        print(f"Loading dataset_train from {cache_path}")
-        dataset, _ = torch.load(cache_path)
-    else:
-        auto_augment_policy = getattr(args, "auto_augment", None)
-        random_erase_prob = getattr(args, "random_erase", 0.0)
-        # dataset = torchvision.datasets.ImageFolder(
-        #     traindir,
-        #     presets.ClassificationPresetTrain(
-        #         crop_size=train_crop_size,
-        #         interpolation=interpolation,
-        #         auto_augment_policy=auto_augment_policy,
-        #         random_erase_prob=random_erase_prob,
-        #     ),
-        # )
-        dataset = ClsDataset(
-            traindir,
-            './imagenet/meta/train.txt',
-            presets.ClassificationPresetTrain(
-                crop_size=train_crop_size,
-                auto_augment_policy=auto_augment_policy,
-                random_erase_prob=random_erase_prob,
-            ),
-        )
-
-        # dataset = ClsDataset(
-        #     's3://openmmlab/datasets/classification/imagenet/train',
-        #     's3://openmmlab/datasets/classification/imagenet/meta/train.txt',
-        #     presets.ClassificationPresetTrain(
-        #         crop_size=crop_size,
-        #         auto_augment_policy=auto_augment_policy,
-        #         random_erase_prob=random_erase_prob,
-        #     ),
-        # )
-
-        if args.cache_dataset:
-            print(f"Saving dataset_train to {cache_path}")
-            utils.mkdir(os.path.dirname(cache_path))
-            utils.save_on_master((dataset, traindir), cache_path)
-    print("Took", time.time() - st)
-
-    print("Loading validation data")
-    cache_path = _get_cache_path(valdir)
-    if args.cache_dataset and os.path.exists(cache_path):
-        # Attention, as the transforms are also cached!
-        print(f"Loading dataset_test from {cache_path}")
-        dataset_test, _ = torch.load(cache_path)
-    else:
-        if args.weights and args.test_only:
-            weights = torchvision.models.get_weight(args.weights)
-            preprocessing = weights.transforms()
-        else:
-            preprocessing = presets.ClassificationPresetEval(
-                crop_size=val_crop_size, resize_size=val_resize_size, interpolation=interpolation
-            )
-
-        dataset_test = torchvision.datasets.ImageFolder(
-            valdir,
-            preprocessing,
-        )
-        if args.cache_dataset:
-            print(f"Saving dataset_test to {cache_path}")
-            utils.mkdir(os.path.dirname(cache_path))
-            utils.save_on_master((dataset_test, valdir), cache_path)
-
-    print("Creating data loaders")
-    if args.distributed:
-        if hasattr(args, "ra_sampler") and args.ra_sampler:
-            train_sampler = RASampler(dataset, shuffle=True, repetitions=args.ra_reps)
-        else:
-            train_sampler = torch.utils.data.distributed.DistributedSampler(dataset)
-        test_sampler = torch.utils.data.distributed.DistributedSampler(dataset_test, shuffle=False)
-    else:
-        train_sampler = torch.utils.data.RandomSampler(dataset)
-        test_sampler = torch.utils.data.SequentialSampler(dataset_test)
-
-    return dataset, dataset_test, train_sampler, test_sampler
-
 def main(args):
-    if args.output_dir:
-        utils.mkdir(args.output_dir)
-
     utils.init_distributed_mode(args)
     print(args)
 
@@ -335,6 +286,7 @@ def main(args):
         num_workers=args.workers,
         pin_memory=True,
         collate_fn=collate_fn,
+        persistent_workers=True,
     )
     data_loader_test = torch.utils.data.DataLoader(
         dataset_test, 
@@ -617,10 +569,22 @@ def get_args_parser(add_help=True):
         "--ra-reps", default=3, type=int, help="number of repetitions for Repeated Augmentation (default: 3)"
     )
     parser.add_argument("--weights", default=None, type=str, help="the weights enum name to load")
+    parser.add_argument("--logfile", default=None, type=str, help="log the std output message")
+    parser.add_argument("--local",action="store_true", help="whether run in the localhost")
 
     return parser
 
 
 if __name__ == "__main__":
     args = get_args_parser().parse_args()
-    main(args)
+
+    if args.output_dir:
+        utils.mkdir(args.output_dir)
+    logpath = None
+    if args.logfile:
+        dt = datetime.datetime.now().strftime('%Y%m%d-%H%M')
+        logfilename, suffix = os.path.splitext(args.logfile)
+        logpath = os.path.join(args.output_dir, f"{logfilename}-{dt}{suffix}") 
+    
+    with Logger(logpath):
+        main(args)
