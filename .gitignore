@@ -42,3 +42,7 @@ xcuserdata/
 # direnv
 .direnv
 .envrc
+
+# checkpoint
+references/classification/ckpts/
+references/classification/data/

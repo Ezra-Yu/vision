@@ -112,17 +112,16 @@ class MetricLogger:
             log_msg = self.delimiter.join(
                 [
                     header,
-                    " Iter:[{0" + space_fmt + "}/{1}]",
+                    "Iter:[{0" + space_fmt + "}/{1}]",
                     "eta: {eta}",
                     "{meters}",
                     "time: {time}",
-                    "data: {data}",
                     "max mem: {memory:.0f}",
                 ]
             )
         else:
             log_msg = self.delimiter.join(
-                [header, " Iter:[{0" + space_fmt + "}/{1}]", "eta: {eta}", "{meters}", "time: {time}", "data: {data}"]
+                [header, "Iter:[{0" + space_fmt + "}/{1}]", "eta: {eta}", "{meters}", "time: {time}"]
             )
         MB = 1024.0 * 1024.0
         for obj in iterable:
@@ -141,14 +140,13 @@ class MetricLogger:
                             eta=eta_string,
                             meters=str(self),
                             time=str(iter_time),
-                            data=str(data_time),
                             memory=torch.cuda.max_memory_allocated() / MB,
                         )
                     )
                 else:
                     print(
                         dt + " - " + log_msg.format(
-                            i, len(iterable), eta=eta_string, meters=str(self), time=str(iter_time), data=str(data_time)
+                            i, len(iterable), eta=eta_string, meters=str(self), time=str(iter_time)
                         )
                     )
             i += 1

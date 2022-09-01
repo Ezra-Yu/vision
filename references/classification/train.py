@@ -91,12 +91,13 @@ def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, arg
             if epoch < args.lr_warmup_epochs:
                 # Reset ema buffer to keep copying weights during warmup period
                 model_ema.n_averaged.fill_(0)
+            # print(f"[EMA]:  COUNT: {i},  STEPs {args.model_ema_steps},  cur_STEPs {model_ema.n_averaged}")
 
         acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
         batch_size = image.shape[0]
         metric_logger.update(loss=loss.item(), lr=optimizer.param_groups[0]["lr"])
         metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
-        metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
+        # metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
         metric_logger.meters["img/s"].update(batch_size / (time.time() - start_time))
 
 
@@ -420,9 +421,10 @@ def main(args):
             train_sampler.set_epoch(epoch)
         train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema, scaler)
         lr_scheduler.step()
-        evaluate(model, criterion, data_loader_test, device=device)
-        if model_ema:
-            evaluate(model_ema, criterion, data_loader_test, device=device, log_suffix="EMA")
+        if not args.notest:
+            evaluate(model, criterion, data_loader_test, device=device)
+            if model_ema:
+                evaluate(model_ema, criterion, data_loader_test, device=device, log_suffix="EMA")
         if args.output_dir:
             checkpoint = {
                 "model": model_without_ddp.state_dict(),
@@ -522,6 +524,12 @@ def get_args_parser(add_help=True):
         "--test-only",
         dest="test_only",
         help="Only test the model",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--notest",
+        dest="notest",
+        help="Not test val dataset",
         action="store_true",
     )
     parser.add_argument("--auto-augment", default=None, type=str, help="auto augment policy (default: None)")
