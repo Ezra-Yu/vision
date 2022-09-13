@@ -107,24 +107,25 @@ def create_dataset(
     (<PIL.Image.Image image mode=RGB size=500x317 at 0x7FDDAC778430>, 188)
     """
     name = name.lower()
-    if name == 'mmClsimagenet':
+    assert name == 'mmclsimagenet', f'{name}'
+    if name == 'mmclsimagenet':
         ds = MMClsImageNet(root, ann_file, local=local, cluster_name=cluster_name, **kwargs)
     else:
         try:
             import timm
         except:
             raise ImportError("Please install timm")
-    ds = timm.data.create_dataset(name,
-                                root,
-                                split=split,
-                                search_split=search_split,
-                                class_map=class_map,
-                                load_bytes=load_bytes,
-                                is_training=is_training,
-                                download=download,
-                                batch_size=batch_size,
-                                repeats=repeats,
-                                **kwargs) 
+        ds = timm.data.create_dataset(name,
+                                    root,
+                                    split=split,
+                                    search_split=search_split,
+                                    class_map=class_map,
+                                    load_bytes=load_bytes,
+                                    is_training=is_training,
+                                    download=download,
+                                    batch_size=batch_size,
+                                    repeats=repeats,
+                                    **kwargs) 
     return ds
 
 
