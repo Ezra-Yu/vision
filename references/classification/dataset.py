@@ -107,7 +107,6 @@ def create_dataset(
     (<PIL.Image.Image image mode=RGB size=500x317 at 0x7FDDAC778430>, 188)
     """
     name = name.lower()
-    assert name == 'mmclsimagenet', f'{name}'
     if name == 'mmclsimagenet':
         ds = MMClsImageNet(root, ann_file, local=local, cluster_name=cluster_name, **kwargs)
     else:
