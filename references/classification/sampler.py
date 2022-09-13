@@ -25,12 +25,12 @@ class RASampler(torch.utils.data.Sampler):
                 raise RuntimeError("Requires distributed package to be available!")
             rank = dist.get_rank()
         self.dataset = dataset
-        self.num_replicas = num_replicas
+        self.num_replicas = num_replicas  # GPUs
         self.rank = rank
         self.epoch = 0
         self.num_samples = int(math.ceil(len(self.dataset) * float(repetitions) / self.num_replicas))
         self.total_size = self.num_samples * self.num_replicas
-        self.num_selected_samples = int(math.floor(len(self.dataset) // 256 * 256 / self.num_replicas))
+        self.num_selected_samples = int(math.floor(len(self.dataset) // 256 * 256 / self.num_replicas)) # round math.ceil(len(self.dataset) / world_size)
         self.shuffle = shuffle
         self.seed = seed
         self.repetitions = repetitions

@@ -156,7 +156,74 @@ class MetricLogger:
         print(f"{header} Total time: {total_time_str}")
 
 
-class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
+import itertools
+from copy import deepcopy
+
+import torch
+from torch.nn import Module
+
+class myAveragedModel(Module):
+    r"""Implements averaged model for Stochastic Weight Averaging (SWA).
+
+    Stochastic Weight Averaging was proposed in `Averaging Weights Leads to
+    Wider Optima and Better Generalization`_ by Pavel Izmailov, Dmitrii
+    Podoprikhin, Timur Garipov, Dmitry Vetrov and Andrew Gordon Wilson
+    (UAI 2018).
+
+    AveragedModel class creates a copy of the provided module :attr:`model`
+    on the device :attr:`device` and allows to compute running averages of the
+    parameters of the :attr:`model`.
+
+    Args:
+        model (torch.nn.Module): model to use with SWA
+        device (torch.device, optional): if provided, the averaged model will be
+            stored on the :attr:`device`
+        avg_fn (function, optional): the averaging function used to update
+            parameters; the function must take in the current value of the
+            :class:`AveragedModel` parameter, the current value of :attr:`model`
+            parameter and the number of models already averaged; if None,
+            equally weighted average is used (default: None)
+        use_buffers (bool): if ``True``, it will compute running averages for
+            both the parameters and the buffers of the model. (default: ``False``)
+
+    """
+    def __init__(self, model, device=None, avg_fn=None, use_buffers=False):
+        super(myAveragedModel, self).__init__()
+        self.module = deepcopy(model)
+        if device is not None:
+            self.module = self.module.to(device)
+        self.register_buffer('n_averaged',
+                             torch.tensor(0, dtype=torch.long, device=device))
+        if avg_fn is None:
+            def avg_fn(averaged_model_parameter, model_parameter, num_averaged):
+                return averaged_model_parameter + \
+                    (model_parameter - averaged_model_parameter) / (num_averaged + 1)
+        self.avg_fn = avg_fn
+        self.use_buffers = use_buffers
+
+    def forward(self, *args, **kwargs):
+        return self.module(*args, **kwargs)
+
+    def update_parameters(self, model):
+        self_param = (
+            itertools.chain(self.module.parameters(), self.module.buffers())
+            if self.use_buffers else self.parameters()
+        )
+        model_param = (
+            itertools.chain(model.parameters(), model.buffers())
+            if self.use_buffers else model.parameters()
+        )
+        for p_swa, p_model in zip(self_param, model_param):
+            device = p_swa.device
+            p_model_ = p_model.detach().to(device)
+            if self.n_averaged == 0:
+                p_swa.detach().copy_(p_model_)
+            else:
+                p_swa.detach().copy_(self.avg_fn(p_swa.detach(), p_model_,
+                                                 self.n_averaged.to(device)))
+        self.n_averaged += 1
+
+class ExponentialMovingAverage(myAveragedModel):
     """Maintains moving averages of model parameters using an exponential decay.
     ``ema_avg = decay * avg_model_param + (1 - decay) * model_param``
     `torch.optim.swa_utils.AveragedModel <https://pytorch.org/docs/stable/optim.html#custom-averaging-strategies>`_
@@ -164,10 +231,32 @@ class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
     """
 
     def __init__(self, model, decay, device="cpu"):
+        self.decay = decay
         def ema_avg(avg_model_param, model_param, num_averaged):
             return decay * avg_model_param + (1 - decay) * model_param
 
         super().__init__(model, device, ema_avg, use_buffers=True)
+    
+    def update_parameters(self, model):
+        self_param = (
+            itertools.chain(self.module.parameters(), self.module.buffers())
+            if self.use_buffers else self.parameters()
+        )
+        model_param = (
+            itertools.chain(model.parameters(), model.buffers())
+            if self.use_buffers else model.parameters()
+        )
+        
+        for p_swa, p_model in zip(self_param, model_param):
+            device = p_swa.device
+            p_model_ = p_model.detach().to(device)
+            if self.n_averaged == 0:
+                p_swa.detach().copy_(p_model_)
+            else:
+                p_swa.detach().copy_(self.avg_fn(p_swa.detach(), p_model_,
+                                                 self.n_averaged.to(device)))
+        print(f"STEP :  {self.n_averaged}   ==>   {self.decay}")
+        self.n_averaged += 1
 
 
 def accuracy(output, target, topk=(1,)):

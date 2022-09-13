@@ -225,6 +225,18 @@ def load_data(data_root, args):
             preprocessing = presets.ClassificationPresetEval(
                 crop_size=val_crop_size, resize_size=val_resize_size, interpolation=interpolation
             )
+        # from mmcls.utils import register_all_modules
+        # register_all_modules()
+        # img_norm_cfg = dict(
+        #     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=False)
+        # test_pipeline = [
+        #     dict(type='ResizeEdge', scale=232, edge='short', backend='pillow'),
+        #     dict(type='CenterCrop', crop_size=224),
+        #     dict(type='Normalize', **img_norm_cfg),
+        # ]
+        # from mmcv.transforms import Compose
+        # transforms = Compose(test_pipeline)
+
         dataset_test = ClsDataset(
                 valdir,
                 val_ann,
