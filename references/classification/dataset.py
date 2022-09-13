@@ -14,25 +14,26 @@ class MMClsImageNet(ImageNet):
     可以用一下代码实验。
 
     Example:
+
     >>> from dataset import MMClsImageNet
     >>> # 读本地的文件夹形式
     >>> train = MMClsImageNet("./data/imagenet/train") 
     >>> len(train)
-    114238
+    1281167
     >>> train[12131]
-
+    (<PIL.Image.Image image mode=RGB size=500x333 at 0x7FDDAC778550>, 9)
     >>> 
     >>> # 读 ceph 上的标注格式 (s 集群上默认格式)
-    >>> val = MMClsImageNet("./data/imagenet/val", ann_file="./data/meta/val.txt", local=False, cluster_name ='openmmlab')
+    >>> val = MMClsImageNet("./data/imagenet/val", ann_file="./data/imagenet/meta/val.txt", local=False, cluster_name ='openmmlab')
     >>> len(val)
     50000
     >>> val[1000]
-
+    (<PIL.Image.Image image mode=RGB size=500x317 at 0x7FDDAC778430>, 188)
     """
 
     def __init__(self,
                  data_prefix,
-                 ann_file=None,
+                 ann_file="",
                  transforms = None,
                  local = True,
                  cluster_name ='openmmlab',
@@ -71,7 +72,7 @@ class MMClsImageNet(ImageNet):
 def create_dataset(
         name,
         root,
-        data_prefix=None,
+        ann_file="",
         local=True,
         cluster_name ='openmmlab',
         split='validation',
@@ -89,23 +90,25 @@ def create_dataset(
     可以用一下代码实验。
 
     Example:
+
     >>> from dataset import create_dataset
     >>> # 读本地的文件夹形式
     >>> train = create_dataset('MMClsImageNet', './data/imagenet/train') 
     >>> len(train)
     114238
     >>> train[12131]
-
+    (<PIL.Image.Image image mode=RGB size=500x333 at 0x7FDDAC778550>, 9)
     >>> 
     >>> # 读 ceph 上的标注格式 (s 集群上默认格式)
-    >>> val = create_dataset("MMClsImageNet", "./data/imagenet/val", ann_file="./data/meta/val.txt", local=False, cluster_name ='openmmlab')
+    >>> val = create_dataset("MMClsImageNet", "./data/imagenet/val", ann_file="./data/imagenet/meta/val.txt", local=False, cluster_name ='openmmlab')
     >>> len(val)
     50000
     >>> val[1000]
+    (<PIL.Image.Image image mode=RGB size=500x317 at 0x7FDDAC778430>, 188)
     """
     name = name.lower()
-    if name.startswith('MMClsImageNet'):
-        ds = MMClsImageNet(root, data_prefix, local=local, cluster_name=cluster_name, **kwargs)
+    if name == 'mmClsimagenet':
+        ds = MMClsImageNet(root, ann_file, local=local, cluster_name=cluster_name, **kwargs)
     else:
         try:
             import timm
@@ -121,7 +124,7 @@ def create_dataset(
                                 download=download,
                                 batch_size=batch_size,
                                 repeats=repeats,
-                                kwargs=kwargs) 
+                                **kwargs) 
     return ds
 
 
