@@ -1,5 +1,4 @@
-'''Dataset for torchvision'''
-
+'''Replace `ImageNet` in torchvision.datasets and `create_dataset` of timm.data'''
 import io
 
 from mmcv.transforms import LoadImageFromFile as BaseLoadImageFromFile
@@ -10,31 +9,32 @@ __all__ = ['MMClsImageNet', 'create_dataset']
 
 class MMClsImageNet(ImageNet):
     """用以替换 `torchvision.datasets`  的 `ImageNet` 和 `ImageFolder`.
-    
-    可以用一下代码实验。
+
+    Note:
+        在具体使用时, 需要传入 transform 参数
 
     Example:
 
-    >>> from dataset import MMClsImageNet
-    >>> # 读本地的文件夹形式
-    >>> train = MMClsImageNet("./data/imagenet/train") 
-    >>> len(train)
-    1281167
-    >>> train[12131]
-    (<PIL.Image.Image image mode=RGB size=500x333 at 0x7FDDAC778550>, 9)
-    >>> 
-    >>> # 读 ceph 上的标注格式 (s 集群上默认格式)
-    >>> val = MMClsImageNet("./data/imagenet/val", ann_file="./data/imagenet/meta/val.txt", local=False, cluster_name ='openmmlab')
-    >>> len(val)
-    50000
-    >>> val[1000]
-    (<PIL.Image.Image image mode=RGB size=500x317 at 0x7FDDAC778430>, 188)
+        >>> from dataset import MMClsImageNet
+        >>> # 读本地的文件夹形式, 
+        >>> train = MMClsImageNet("./data/imagenet/train") 
+        >>> len(train)
+        1281167
+        >>> train[12131]
+        (<PIL.Image.Image image mode=RGB size=500x333 at 0x7FDDAC778550>, 9)
+        >>> 
+        >>> # 读 ceph 上的标注格式 (s 集群上默认格式)
+        >>> val = MMClsImageNet("./data/imagenet/val", ann_file="./data/imagenet/meta/val.txt", local=False, cluster_name ='openmmlab')
+        >>> len(val)
+        50000
+        >>> val[1000]
+        (<PIL.Image.Image image mode=RGB size=500x317 at 0x7FDDAC778430>, 188)
     """
 
     def __init__(self,
                  data_prefix,
                  ann_file="",
-                 transforms = None,
+                 transform = None,
                  local = True,
                  cluster_name ='openmmlab',
                  **kwargs):
@@ -42,7 +42,7 @@ class MMClsImageNet(ImageNet):
             ann_file=ann_file,
             data_prefix=data_prefix,
             **kwargs)
-        self.transforms = transforms
+        self.transform = transform
         if local == True:
             file_client_args: dict = dict(backend='disk')
             self.load = PILLoadImageFromFile(file_client_args=file_client_args)
@@ -61,8 +61,8 @@ class MMClsImageNet(ImageNet):
         img, label = result['img'], result['gt_label']
         img = img.convert("RGB")
         try:
-            if self.transforms is not None:
-                img = self.transforms(img)
+            if self.transform is not None:
+                img = self.transform(img)
         except RuntimeError as e:
             print(result)
             raise e
@@ -86,25 +86,26 @@ def create_dataset(
         **kwargs
 ):
     """ 使timm.data.create_dataset支持 `MMClsImageNet`. 其本身保持timm的用法
-
-    可以用一下代码实验。
+    
+    Note:
+        在具体使用时, 不需要传入 transform 参数, timm 在 ``create_loader`` 时 实例化 transform
 
     Example:
 
-    >>> from dataset import create_dataset
-    >>> # 读本地的文件夹形式
-    >>> train = create_dataset('MMClsImageNet', './data/imagenet/train') 
-    >>> len(train)
-    114238
-    >>> train[12131]
-    (<PIL.Image.Image image mode=RGB size=500x333 at 0x7FDDAC778550>, 9)
-    >>> 
-    >>> # 读 ceph 上的标注格式 (s 集群上默认格式)
-    >>> val = create_dataset("MMClsImageNet", "./data/imagenet/val", ann_file="./data/imagenet/meta/val.txt", local=False, cluster_name ='openmmlab')
-    >>> len(val)
-    50000
-    >>> val[1000]
-    (<PIL.Image.Image image mode=RGB size=500x317 at 0x7FDDAC778430>, 188)
+        >>> from dataset import create_dataset
+        >>> # 读本地的文件夹形式
+        >>> train = create_dataset('MMClsImageNet', './data/imagenet/train') 
+        >>> len(train)
+        114238
+        >>> train[12131]
+        (<PIL.Image.Image image mode=RGB size=500x333 at 0x7FDDAC778550>, 9)
+        >>> 
+        >>> # 读 ceph 上的标注格式 (s 集群上默认格式)
+        >>> val = create_dataset("MMClsImageNet", "./data/imagenet/val", ann_file="./data/imagenet/meta/val.txt", local=False, cluster_name ='openmmlab')
+        >>> len(val)
+        50000
+        >>> val[1000]
+        (<PIL.Image.Image image mode=RGB size=500x317 at 0x7FDDAC778430>, 188)
     """
     name = name.lower()
     if name == 'mmclsimagenet':
